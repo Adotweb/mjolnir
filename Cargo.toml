@@ -1,0 +1,19 @@
+[package]
+name = "mjolnir"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+type_lib = {path = "../thorlang/type_lib"}
+winit = "0.30.5"
+wgpu = "23.0.0"
+pollster = "0.4.0"
+bytemuch = { version = "1.16", features = ["derive"]}
+
+[dependencies.image]
+version = "0.24"
+default-feature = false
+features = ["png", "jpeg"]
