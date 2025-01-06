@@ -11,7 +11,7 @@ type_lib = {path = "../thorlang/type_lib"}
 winit = "0.30.5"
 wgpu = "23.0.0"
 pollster = "0.4.0"
-bytemuch = { version = "1.16", features = ["derive"]}
+bytemuck = { version = "1.16", features = ["derive"]}
 
 [dependencies.image]
 version = "0.24"
