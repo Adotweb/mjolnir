@@ -12,6 +12,7 @@ winit = "0.30.5"
 wgpu = "23.0.0"
 pollster = "0.4.0"
 bytemuck = { version = "1.16", features = ["derive"]}
+softbuffer = "0.4"
 
 [dependencies.image]
 version = "0.24"

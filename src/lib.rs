@@ -6,9 +6,11 @@ use std::thread::{spawn, JoinHandle};
 
 use std::sync::{mpsc::{Sender, Receiver, self}, Mutex, Arc, OnceLock};
 
+use std::num::NonZeroU32;
 
 static RENDER_THREAD: OnceLock<JoinHandle<()>> = OnceLock::new();
 static RENDER_THREAD_SENDER: OnceLock<Sender<(String, Value)>> = OnceLock::new();
+
 
 
 use winit::{
@@ -19,12 +21,18 @@ use winit::{
     window::{Window, WindowLevel, WindowId}
 };
 
+use std::rc::Rc;
+
+use softbuffer::{Context, Surface};
+
 use bytemuck::{Pod, Zeroable};
 
 
 #[derive(Default)]
 struct App{
-    window : Option<Window>,
+    window : Option<Rc<Window>>,
+    context : Option<Context<Rc<Window>>>,
+    surface : Option<Surface<Rc<Window>, Rc<Window>>>,
     receiver : Option<Receiver<(String, Value)>>
 }
 
@@ -44,9 +52,14 @@ impl ApplicationHandler for App{
         if self.window.is_none(){
 
             let window_attributes = Window::default_attributes().with_title("hello");
+            let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
 
+            let context = Context::new(window.clone()).unwrap();
+            let surface = Surface::new(&context, window.clone()).unwrap();
 
-            self.window = Some(event_loop.create_window(window_attributes).unwrap())
+            self.window = Some(window);
+            self.context = Some(context);
+            self.surface = Some(surface);
         }
 
     }
@@ -67,7 +80,6 @@ impl ApplicationHandler for App{
             }
         }
 
-        println!("new thing event");
 
         match event{
             WindowEvent::Resized(size) => {
@@ -82,8 +94,32 @@ impl ApplicationHandler for App{
             },
 
             WindowEvent::RedrawRequested => {
-                self.window.as_ref().unwrap().request_redraw();
+                    if let Some(surface) = &mut self.surface {
+                        let size = self.window.as_ref().unwrap().inner_size();
+                        if let (Some(width), Some(height)) = (
+                            NonZeroU32::new(size.width),
+                            NonZeroU32::new(size.height),
+                        ) {
+                            surface.resize(width, height).unwrap();
+                            let mut buffer = surface.buffer_mut().unwrap();
+                            let buffer_width = width.get() as usize;
+                            let buffer_height = height.get() as usize;
 
+                            // Fill the buffer with a gradient
+                            for y in 0..buffer_height {
+                                for x in 0..buffer_width {
+                                    let red = (x as usize * 255 / buffer_width) as u32;
+                                    let green = (y as usize * 255 / buffer_height) as u32;
+                                    let blue = 128;
+                                    buffer[y * buffer_width + x] =
+                                        (red << 16) | (green << 8) | blue;
+                                }
+                            }
+                            buffer.present().unwrap();
+                        }
+                    }
+
+                    self.window.as_ref().unwrap().request_redraw();
  
             },
             _ => ()
