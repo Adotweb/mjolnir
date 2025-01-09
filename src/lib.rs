@@ -68,9 +68,9 @@ impl App {
     fn apply_queue(&mut self) {
         for rec in self.command_queue.iter() {
             match rec.0.as_str() {
+                "new_frame" => (),
                 "flush" => {
                     self.screen_buffer.fill(0);
-
                 }
                 "set_pixel" => {
                     let pixel_coordinates = rec.1.clone();
@@ -159,6 +159,22 @@ impl ApplicationHandler for App {
                  
                     self.apply_queue();
                     self.command_queue = vec![("flush".to_string(), Value::nil())];
+                    self.window.as_ref().unwrap().request_redraw();
+
+                    self.last_frame_time = Some(Instant::now())
+                }
+
+                if rec.0.as_str() == "new_frame" {
+                    let delta = Instant::now() - self.last_frame_time.unwrap();
+
+                    let lock = DELTA_TIME.get().unwrap(); 
+
+                    let mut guard = lock.write().unwrap();
+                  
+                    *guard = delta.as_secs_f64();
+                    
+                 
+                    self.apply_queue();
                     self.window.as_ref().unwrap().request_redraw();
 
                     self.last_frame_time = Some(Instant::now())
@@ -319,6 +335,19 @@ pub extern "Rust" fn flush(values: HashMap<String, Value>) -> Value {
 }
 
 #[no_mangle]
+pub extern "Rust" fn new_frame(values: HashMap<String, Value>) -> Value {
+    let sender = RENDER_THREAD_SENDER.clone();
+
+    let _ = sender
+        .get()
+        .unwrap()
+        .send(("new_frame".to_string(), Value::nil()))
+        .unwrap();
+
+    Value::nil()
+}
+
+#[no_mangle]
 pub extern "Rust" fn create_window(values: HashMap<String, Value>) -> Value {
     let (tx, rx) = mpsc::channel::<(String, Value)>();
 
@@ -354,6 +383,7 @@ pub extern "Rust" fn value_map() -> HashMap<String, Value> {
     Value::lib_function("set_pixel", vec!["pixel_info"], None, None).insert_to(&mut map);
     Value::lib_function("draw_rect", vec!["pixel_coords"], None, None).insert_to(&mut map);
     Value::lib_function("flush", vec![], None, None).insert_to(&mut map);
+    Value::lib_function("new_frame", vec![], None, None).insert_to(&mut map);
     Value::lib_function("get_delta_time", vec![], None, None).insert_to(&mut map);
     Value::lib_function("sleep", vec!["sleep_duration"], None, None).insert_to(&mut map);
 
