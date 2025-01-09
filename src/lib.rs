@@ -19,7 +19,11 @@ static RENDER_THREAD_SENDER: OnceLock<Sender<(String, Value)>> = OnceLock::new()
 
 
 static DELTA_TIME : OnceLock<RwLock<f64>> = OnceLock::new();
-static DELTA_TIME_FALLBACK : OnceLock<RwLock<f64>> = OnceLock::new();
+
+
+static SCREEN_DIMENSIONS : OnceLock<RwLock<[f64;2]>> = OnceLock::new();
+
+
 
 use winit::{
     application::ApplicationHandler,
@@ -98,6 +102,7 @@ impl App {
                     let x2 = p2[0].clone().to_f64().unwrap() as usize;
                     let y2 = p2[1].clone().to_f64().unwrap() as usize;
 
+
                     for x in x1..x2 {
                         for y in y1..y2 {
                             if let Some(target_index) =
@@ -171,6 +176,13 @@ impl ApplicationHandler for App {
 
                 self.screen_size = [buf_w, buf_h];
 
+                let screen_size_lock = SCREEN_DIMENSIONS.get().unwrap();
+
+                let mut screen_size_guard = screen_size_lock.write().unwrap();
+
+
+                *screen_size_guard = [buf_w as f64, buf_h as f64];
+
                 if let Some(surface) = &mut self.surface {
                     let _ = surface.resize(
                         NonZeroU32::new(buf_w as u32).unwrap(),
@@ -195,15 +207,12 @@ impl ApplicationHandler for App {
                     if let (Some(width), Some(height)) =
                         (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
                     {
-                        surface.resize(width, height).unwrap();
 
                         let mut buffer = surface.buffer_mut().unwrap();
 
-                        let buffer_width: usize = width.get() as usize;
-                        let buffer_height: usize = height.get() as usize;
 
-                        self.screen_size[0] = buffer_width;
-                        self.screen_size[1] = buffer_height;
+                        let buffer_width = self.screen_size[0];
+                        let buffer_height = self.screen_size[1];
                         self.screen_buffer.resize(buffer_width * buffer_height, 0);
 
                         // Fill the buffer with a gradient
@@ -225,10 +234,22 @@ impl ApplicationHandler for App {
     }
 }
 
+
+
 #[no_mangle]
-pub extern "Rust" fn buf_append(values: HashMap<String, Value>) -> Value {
-    Value::nil()
+pub extern "Rust" fn get_screen_dimensions(values: HashMap<String, Value>) -> Value {
+    
+
+    let screen_size_lock = SCREEN_DIMENSIONS.get().unwrap(); 
+    
+    let screen_size_guard = screen_size_lock.read().unwrap();
+
+    let screen_size = (*screen_size_guard).clone();
+
+    
+    Value::array(screen_size.iter().map(|x| Value::number(*x)).collect())
 }
+
 
 #[no_mangle]
 pub extern "Rust" fn get_delta_time(values: HashMap<String, Value>) -> Value{
@@ -304,6 +325,9 @@ pub extern "Rust" fn create_window(values: HashMap<String, Value>) -> Value {
     RENDER_THREAD_SENDER.get_or_init(|| tx.clone());
 
     DELTA_TIME.get_or_init(|| RwLock::new(0.0));
+    
+
+    SCREEN_DIMENSIONS.get_or_init(|| RwLock::new([0.0, 0.0]));
 
     RENDER_THREAD.get_or_init(move || {
         spawn(|| {
@@ -332,6 +356,8 @@ pub extern "Rust" fn value_map() -> HashMap<String, Value> {
     Value::lib_function("flush", vec![], None, None).insert_to(&mut map);
     Value::lib_function("get_delta_time", vec![], None, None).insert_to(&mut map);
     Value::lib_function("sleep", vec!["sleep_duration"], None, None).insert_to(&mut map);
+
+    Value::lib_function("get_screen_dimensions", vec![], None, None).insert_to(&mut map);
 
     map
 }
