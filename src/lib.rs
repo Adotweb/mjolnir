@@ -4,15 +4,22 @@ use std::collections::HashMap;
 
 use std::thread::{spawn, JoinHandle};
 
+use std::time::{Duration, Instant};
+
 use std::sync::{
     mpsc::{self, Receiver, Sender},
     Arc, Mutex, OnceLock,
+    RwLock
 };
 
 use std::num::NonZeroU32;
 
 static RENDER_THREAD: OnceLock<JoinHandle<()>> = OnceLock::new();
 static RENDER_THREAD_SENDER: OnceLock<Sender<(String, Value)>> = OnceLock::new();
+
+
+static DELTA_TIME : OnceLock<RwLock<f64>> = OnceLock::new();
+static DELTA_TIME_FALLBACK : OnceLock<RwLock<f64>> = OnceLock::new();
 
 use winit::{
     application::ApplicationHandler,
@@ -40,12 +47,16 @@ struct App {
     screen_buffer: Vec<u32>,
 
     command_queue: Vec<(String, Value)>,
+
+
+    last_frame_time : Option<Instant>
 }
 
 impl App {
     fn from_receiver(rec: Receiver<(String, Value)>) -> Self {
         App {
             receiver: Some(rec),
+            last_frame_time : Some(Instant::now()),
             ..Default::default()
         }
     }
@@ -55,6 +66,7 @@ impl App {
             match rec.0.as_str() {
                 "flush" => {
                     self.screen_buffer.fill(0);
+
                 }
                 "set_pixel" => {
                     let pixel_coordinates = rec.1.clone();
@@ -131,9 +143,20 @@ impl ApplicationHandler for App {
             if let Ok(rec) = receiver.try_recv() {
 
                 if rec.0.as_str() == "flush" {
+                    let delta = Instant::now() - self.last_frame_time.unwrap();
+
+                    let lock = DELTA_TIME.get().unwrap(); 
+
+                    let mut guard = lock.write().unwrap();
+                  
+                    *guard = delta.as_secs_f64();
+                    
+                 
                     self.apply_queue();
                     self.command_queue = vec![("flush".to_string(), Value::nil())];
                     self.window.as_ref().unwrap().request_redraw();
+
+                    self.last_frame_time = Some(Instant::now())
                 }
 
                 self.command_queue.push(rec.clone());
@@ -208,6 +231,30 @@ pub extern "Rust" fn buf_append(values: HashMap<String, Value>) -> Value {
 }
 
 #[no_mangle]
+pub extern "Rust" fn get_delta_time(values: HashMap<String, Value>) -> Value{
+       
+
+    let delta_lock = DELTA_TIME.get().unwrap();
+
+
+    let delta = delta_lock.read().unwrap().clone();
+    
+
+     
+    Value::number(delta)
+}
+
+#[no_mangle]
+pub extern "Rust" fn sleep(values: HashMap<String, Value>) -> Value{
+       
+    let sleep_duration = values.get("sleep_duration").unwrap().to_f64().expect("sleep duration must be a number in ms"); 
+
+    std::thread::sleep(Duration::from_millis(sleep_duration as u64));
+     
+    Value::nil()
+}
+
+#[no_mangle]
 pub extern "Rust" fn set_pixel(values: HashMap<String, Value>) -> Value {
     let pixel_info = values.get("pixel_info").unwrap();
 
@@ -256,6 +303,8 @@ pub extern "Rust" fn create_window(values: HashMap<String, Value>) -> Value {
 
     RENDER_THREAD_SENDER.get_or_init(|| tx.clone());
 
+    DELTA_TIME.get_or_init(|| RwLock::new(0.0));
+
     RENDER_THREAD.get_or_init(move || {
         spawn(|| {
             let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
@@ -281,6 +330,8 @@ pub extern "Rust" fn value_map() -> HashMap<String, Value> {
     Value::lib_function("set_pixel", vec!["pixel_info"], None, None).insert_to(&mut map);
     Value::lib_function("draw_rect", vec!["pixel_coords"], None, None).insert_to(&mut map);
     Value::lib_function("flush", vec![], None, None).insert_to(&mut map);
+    Value::lib_function("get_delta_time", vec![], None, None).insert_to(&mut map);
+    Value::lib_function("sleep", vec!["sleep_duration"], None, None).insert_to(&mut map);
 
     map
 }
