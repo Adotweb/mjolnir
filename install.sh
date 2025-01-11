@@ -1,3 +1,3 @@
 cargo build --release 
 
-cp ./target/release/libmjolnir.so ../algs/mjolnir.so
+cp ./target/release/libmjolnir.so ../thor_pres/mjolnir.so

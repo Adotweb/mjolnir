@@ -8,8 +8,7 @@ use std::time::{Duration, Instant};
 
 use std::sync::{
     mpsc::{self, Receiver, Sender},
-    Arc, Mutex, OnceLock,
-    RwLock
+    Arc, Mutex, OnceLock, RwLock,
 };
 
 use std::num::NonZeroU32;
@@ -17,13 +16,11 @@ use std::num::NonZeroU32;
 static RENDER_THREAD: OnceLock<JoinHandle<()>> = OnceLock::new();
 static RENDER_THREAD_SENDER: OnceLock<Sender<(String, Value)>> = OnceLock::new();
 
+static DELTA_TIME: OnceLock<RwLock<f64>> = OnceLock::new();
 
-static DELTA_TIME : OnceLock<RwLock<f64>> = OnceLock::new();
+static SCREEN_DIMENSIONS: OnceLock<RwLock<[f64; 2]>> = OnceLock::new();
 
-
-static SCREEN_DIMENSIONS : OnceLock<RwLock<[f64;2]>> = OnceLock::new();
-
-
+static CURRENT_COLOR: OnceLock<RwLock<[f64; 3]>> = OnceLock::new();
 
 use winit::{
     application::ApplicationHandler,
@@ -52,20 +49,21 @@ struct App {
 
     command_queue: Vec<(String, Value)>,
 
-
-    last_frame_time : Option<Instant>
+    last_frame_time: Option<Instant>,
 }
 
 impl App {
     fn from_receiver(rec: Receiver<(String, Value)>) -> Self {
         App {
             receiver: Some(rec),
-            last_frame_time : Some(Instant::now()),
+            last_frame_time: Some(Instant::now()),
             ..Default::default()
         }
     }
 
     fn apply_queue(&mut self) {
+        let color = get_color();
+
         for rec in self.command_queue.iter() {
             match rec.0.as_str() {
                 "new_frame" => (),
@@ -102,15 +100,63 @@ impl App {
                     let x2 = p2[0].clone().to_f64().unwrap() as usize;
                     let y2 = p2[1].clone().to_f64().unwrap() as usize;
 
-
                     for x in x1..x2 {
                         for y in y1..y2 {
                             if let Some(target_index) =
                                 self.screen_buffer.get_mut(y * self.screen_size[0] + x)
                             {
-                                *target_index = (255 << 16) | (255 << 8) | 255;
+                                *target_index = ((color[0] as u32) << 16)
+                                    | ((color[1] as u32) << 8)
+                                    | (color[2] as u32);
                             }
                         }
+                    }
+                }
+
+                "draw_line" => {
+                    let pixel_coordinates = rec.1.clone();
+
+                    let arr = pixel_coordinates.to_arr().unwrap();
+
+                    let p1 = arr[0].clone().to_arr().unwrap();
+                    let mut x1 = p1[0].clone().to_f64().unwrap();
+                    let mut y1 = p1[1].clone().to_f64().unwrap();
+
+                    let p2 = arr[1].clone().to_arr().unwrap();
+                    let mut x2 = p2[0].clone().to_f64().unwrap();
+                    let mut y2 = p2[1].clone().to_f64().unwrap();
+
+                    let color_rgb = get_color();
+                    let color = ((color_rgb[0] as u32) << 16)
+                        | ((color_rgb[1] as u32) << 8)
+                        | (color_rgb[2] as u32);
+
+                    let buffer = &mut self.screen_buffer;
+
+                    let width = self.screen_size[0];
+
+                    // Swap points if x1 > x2 to ensure we always move left-to-right
+                    if x1 > x2 {
+                        std::mem::swap(&mut x1, &mut x2);
+                        std::mem::swap(&mut y1, &mut y2);
+                    }
+
+                    let dx = x2 - x1;
+                    let dy = y2 - y1;
+
+                    let slope = dy/dx;
+                    
+
+                    let mut y = y1;
+
+                    for x in x1 as i32..=x2 as i32{
+                        
+                        if let Some(pixel) = buffer.get_mut(y.floor() as usize * width + x as usize) {
+                            *pixel = color;
+                        }
+
+                        y = y + slope;
+                        
                     }
                 }
                 _ => println!("some message!"),
@@ -146,17 +192,15 @@ impl ApplicationHandler for App {
     ) {
         if let Some(receiver) = &self.receiver {
             if let Ok(rec) = receiver.try_recv() {
-
                 if rec.0.as_str() == "flush" {
                     let delta = Instant::now() - self.last_frame_time.unwrap();
 
-                    let lock = DELTA_TIME.get().unwrap(); 
+                    let lock = DELTA_TIME.get().unwrap();
 
                     let mut guard = lock.write().unwrap();
-                  
+
                     *guard = delta.as_secs_f64();
-                    
-                 
+
                     self.apply_queue();
                     self.command_queue = vec![("flush".to_string(), Value::nil())];
                     self.window.as_ref().unwrap().request_redraw();
@@ -167,13 +211,12 @@ impl ApplicationHandler for App {
                 if rec.0.as_str() == "new_frame" {
                     let delta = Instant::now() - self.last_frame_time.unwrap();
 
-                    let lock = DELTA_TIME.get().unwrap(); 
+                    let lock = DELTA_TIME.get().unwrap();
 
                     let mut guard = lock.write().unwrap();
-                  
+
                     *guard = delta.as_secs_f64();
-                    
-                 
+
                     self.apply_queue();
                     self.window.as_ref().unwrap().request_redraw();
 
@@ -195,7 +238,6 @@ impl ApplicationHandler for App {
                 let screen_size_lock = SCREEN_DIMENSIONS.get().unwrap();
 
                 let mut screen_size_guard = screen_size_lock.write().unwrap();
-
 
                 *screen_size_guard = [buf_w as f64, buf_h as f64];
 
@@ -223,9 +265,7 @@ impl ApplicationHandler for App {
                     if let (Some(width), Some(height)) =
                         (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
                     {
-
                         let mut buffer = surface.buffer_mut().unwrap();
-
 
                         let buffer_width = self.screen_size[0];
                         let buffer_height = self.screen_size[1];
@@ -250,44 +290,60 @@ impl ApplicationHandler for App {
     }
 }
 
-
-
 #[no_mangle]
 pub extern "Rust" fn get_screen_dimensions(values: HashMap<String, Value>) -> Value {
-    
+    let screen_size_lock = SCREEN_DIMENSIONS.get().unwrap();
 
-    let screen_size_lock = SCREEN_DIMENSIONS.get().unwrap(); 
-    
     let screen_size_guard = screen_size_lock.read().unwrap();
 
     let screen_size = (*screen_size_guard).clone();
 
-    
     Value::array(screen_size.iter().map(|x| Value::number(*x)).collect())
 }
 
-
 #[no_mangle]
-pub extern "Rust" fn get_delta_time(values: HashMap<String, Value>) -> Value{
-       
-
+pub extern "Rust" fn get_delta_time(values: HashMap<String, Value>) -> Value {
     let delta_lock = DELTA_TIME.get().unwrap();
 
-
     let delta = delta_lock.read().unwrap().clone();
-    
 
-     
     Value::number(delta)
 }
 
+fn get_color() -> [f64; 3] {
+    let color_lock = CURRENT_COLOR.get().unwrap();
+    let color_guard = color_lock.read().unwrap();
+    return *color_guard;
+}
+
 #[no_mangle]
-pub extern "Rust" fn sleep(values: HashMap<String, Value>) -> Value{
-       
-    let sleep_duration = values.get("sleep_duration").unwrap().to_f64().expect("sleep duration must be a number in ms"); 
+pub extern "Rust" fn set_color(values: HashMap<String, Value>) -> Value {
+    let color = values.get("color").unwrap().to_arr().unwrap();
+
+    let color_arr: Vec<f64> = color.iter().map(|x| x.to_f64().unwrap()).collect();
+
+    let color_lock = CURRENT_COLOR.get().unwrap();
+
+    let mut color_guard = color_lock.write().unwrap();
+
+    *color_guard = match color_arr.as_slice() {
+        &[a, b, c] => [a, b, c],
+        _ => panic!("colors must have three entries"),
+    };
+
+    Value::nil()
+}
+
+#[no_mangle]
+pub extern "Rust" fn sleep(values: HashMap<String, Value>) -> Value {
+    let sleep_duration = values
+        .get("sleep_duration")
+        .unwrap()
+        .to_f64()
+        .expect("sleep duration must be a number in ms");
 
     std::thread::sleep(Duration::from_millis(sleep_duration as u64));
-     
+
     Value::nil()
 }
 
@@ -316,6 +372,21 @@ pub extern "Rust" fn draw_rect(values: HashMap<String, Value>) -> Value {
         .get()
         .unwrap()
         .send(("draw_rect".to_string(), pixel_coords.clone()))
+        .unwrap();
+
+    Value::nil()
+}
+
+#[no_mangle]
+pub extern "Rust" fn draw_line(values: HashMap<String, Value>) -> Value {
+    let pixel_coords = values.get("pixel_coords").unwrap();
+
+    let sender = RENDER_THREAD_SENDER.clone();
+
+    let _ = sender
+        .get()
+        .unwrap()
+        .send(("draw_line".to_string(), pixel_coords.clone()))
         .unwrap();
 
     Value::nil()
@@ -354,7 +425,8 @@ pub extern "Rust" fn create_window(values: HashMap<String, Value>) -> Value {
     RENDER_THREAD_SENDER.get_or_init(|| tx.clone());
 
     DELTA_TIME.get_or_init(|| RwLock::new(0.0));
-    
+
+    CURRENT_COLOR.get_or_init(|| RwLock::new([0.0, 0.0, 0.0]));
 
     SCREEN_DIMENSIONS.get_or_init(|| RwLock::new([0.0, 0.0]));
 
@@ -380,8 +452,11 @@ pub extern "Rust" fn value_map() -> HashMap<String, Value> {
 
     Value::lib_function("buf_append", vec![], None, None).insert_to(&mut map);
 
+    Value::lib_function("set_color", vec!["color"], None, None).insert_to(&mut map);
+
     Value::lib_function("set_pixel", vec!["pixel_info"], None, None).insert_to(&mut map);
     Value::lib_function("draw_rect", vec!["pixel_coords"], None, None).insert_to(&mut map);
+    Value::lib_function("draw_line", vec!["pixel_coords"], None, None).insert_to(&mut map);
     Value::lib_function("flush", vec![], None, None).insert_to(&mut map);
     Value::lib_function("new_frame", vec![], None, None).insert_to(&mut map);
     Value::lib_function("get_delta_time", vec![], None, None).insert_to(&mut map);
