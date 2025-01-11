@@ -50,7 +50,45 @@ struct App {
     command_queue: Vec<(String, Value)>,
 
     last_frame_time: Option<Instant>,
+
+    current_color : [f64; 3]
 }
+
+
+fn draw_line_bresenham(x1: i32, y1: i32, x2: i32, y2: i32, color: u32, buffer: &mut [u32], width: usize) {
+    let mut x = x1;
+    let mut y = y1;
+    let dx = (x2 - x1).abs();
+    let dy = (y2 - y1).abs();
+    let sx = if x1 < x2 { 1 } else { -1 };
+    let sy = if y1 < y2 { 1 } else { -1 };
+
+    let mut err = if dx > dy { dx } else { -dy } / 2;
+
+    loop {
+        // Draw the pixel at (x, y)
+        if let Some(index) = (y as usize).checked_mul(width).and_then(|offset| offset.checked_add(x as usize)) {
+            if index < buffer.len() {
+                buffer[index] = color;
+            }
+        }
+
+        if x == x2 && y == y2 {
+            break;
+        }
+
+        let err2 = err;
+        if err2 > -dx {
+            err -= dy;
+            x += sx;
+        }
+        if err2 < dy {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
 
 impl App {
     fn from_receiver(rec: Receiver<(String, Value)>) -> Self {
@@ -62,13 +100,22 @@ impl App {
     }
 
     fn apply_queue(&mut self) {
-        let color = get_color();
 
         for rec in self.command_queue.iter() {
             match rec.0.as_str() {
                 "new_frame" => (),
                 "flush" => {
                     self.screen_buffer.fill(0);
+                }
+                "set_color" => {
+                    let color_arr : Vec<f64>  = rec.1.clone().to_arr().unwrap().iter().map(|x| x.to_f64().unwrap())
+                        .collect();
+
+
+                    self.current_color = match color_arr.as_slice(){
+                        &[r, g, b] => [r, g, b],
+                        _ =>panic!("color must have three number entires")
+                    };
                 }
                 "set_pixel" => {
                     let pixel_coordinates = rec.1.clone();
@@ -88,6 +135,8 @@ impl App {
                     }
                 }
                 "draw_rect" => {
+
+                    let color = get_color();
                     let pixel_coordinates = rec.1.clone();
 
                     let arr = pixel_coordinates.to_arr().unwrap();
@@ -119,14 +168,14 @@ impl App {
                     let arr = pixel_coordinates.to_arr().unwrap();
 
                     let p1 = arr[0].clone().to_arr().unwrap();
-                    let mut x1 = p1[0].clone().to_f64().unwrap();
-                    let mut y1 = p1[1].clone().to_f64().unwrap();
+                    let x1 = p1[0].clone().to_f64().unwrap();
+                    let y1 = p1[1].clone().to_f64().unwrap();
 
                     let p2 = arr[1].clone().to_arr().unwrap();
-                    let mut x2 = p2[0].clone().to_f64().unwrap();
-                    let mut y2 = p2[1].clone().to_f64().unwrap();
+                    let x2 = p2[0].clone().to_f64().unwrap();
+                    let y2 = p2[1].clone().to_f64().unwrap();
 
-                    let color_rgb = get_color();
+                    let color_rgb = self.current_color;
                     let color = ((color_rgb[0] as u32) << 16)
                         | ((color_rgb[1] as u32) << 8)
                         | (color_rgb[2] as u32);
@@ -134,30 +183,9 @@ impl App {
                     let buffer = &mut self.screen_buffer;
 
                     let width = self.screen_size[0];
-
-                    // Swap points if x1 > x2 to ensure we always move left-to-right
-                    if x1 > x2 {
-                        std::mem::swap(&mut x1, &mut x2);
-                        std::mem::swap(&mut y1, &mut y2);
-                    }
-
-                    let dx = x2 - x1;
-                    let dy = y2 - y1;
-
-                    let slope = dy/dx;
                     
+                    draw_line_bresenham(x1 as i32, y1 as i32, x2 as i32, y2 as i32, color, buffer, width);
 
-                    let mut y = y1;
-
-                    for x in x1 as i32..=x2 as i32{
-                        
-                        if let Some(pixel) = buffer.get_mut(y.floor() as usize * width + x as usize) {
-                            *pixel = color;
-                        }
-
-                        y = y + slope;
-                        
-                    }
                 }
                 _ => println!("some message!"),
             }
@@ -318,18 +346,14 @@ fn get_color() -> [f64; 3] {
 
 #[no_mangle]
 pub extern "Rust" fn set_color(values: HashMap<String, Value>) -> Value {
-    let color = values.get("color").unwrap().to_arr().unwrap();
+    let color = values.get("color").unwrap();
+    let sender = RENDER_THREAD_SENDER.clone();
 
-    let color_arr: Vec<f64> = color.iter().map(|x| x.to_f64().unwrap()).collect();
-
-    let color_lock = CURRENT_COLOR.get().unwrap();
-
-    let mut color_guard = color_lock.write().unwrap();
-
-    *color_guard = match color_arr.as_slice() {
-        &[a, b, c] => [a, b, c],
-        _ => panic!("colors must have three entries"),
-    };
+    let _ = sender
+        .get()
+        .unwrap()
+        .send(("set_color".to_string(), color.clone()))
+        .unwrap();
 
     Value::nil()
 }
