@@ -135,8 +135,12 @@ impl App {
                     }
                 }
                 "draw_rect" => {
+                    let color_rgb = self.current_color;
+                    let color = ((color_rgb[0] as u32) << 16)
+                                    | ((color_rgb[1] as u32) << 8)
+                                    | (color_rgb[2] as u32);;
 
-                    let color = get_color();
+
                     let pixel_coordinates = rec.1.clone();
 
                     let arr = pixel_coordinates.to_arr().unwrap();
@@ -154,9 +158,7 @@ impl App {
                             if let Some(target_index) =
                                 self.screen_buffer.get_mut(y * self.screen_size[0] + x)
                             {
-                                *target_index = ((color[0] as u32) << 16)
-                                    | ((color[1] as u32) << 8)
-                                    | (color[2] as u32);
+                                *target_index = color;
                             }
                         }
                     }
