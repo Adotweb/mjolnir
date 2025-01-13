@@ -435,6 +435,7 @@ pub extern "Rust" fn flush(values: HashMap<String, Value>) -> Value {
 pub extern "Rust" fn new_frame(values: HashMap<String, Value>) -> Value {
     let sender = RENDER_THREAD_SENDER.clone();
 
+
     let _ = sender
         .get()
         .unwrap()
@@ -472,7 +473,16 @@ pub extern "Rust" fn create_window(values: HashMap<String, Value>) -> Value {
 
     ret.value = ValueType::Object;
 
-    Value::lib_function("new_frame", vec![], None).insert_to(&mut ret.fields);
+
+    Value::lib_function("set_color", vec!["color"],  None).insert_to(&mut ret.fields);
+    Value::lib_function("draw_rect", vec!["pixel_coords"], None).insert_to(&mut ret.fields);
+    Value::lib_function("draw_line", vec!["pixel_coords"], None).insert_to(&mut ret.fields);
+    Value::lib_function("flush", vec![], None).insert_to(&mut ret.fields);
+    Value::lib_function("new_frame", vec![],  None).insert_to(&mut ret.fields);
+    Value::lib_function("get_delta_time", vec![], None).insert_to(&mut ret.fields);
+    Value::lib_function("sleep", vec!["sleep_duration"],  None).insert_to(&mut ret.fields);
+    Value::lib_function("get_screen_dimensions", vec![],  None).insert_to(&mut ret.fields);
+
 
     ret
 }
@@ -480,22 +490,9 @@ pub extern "Rust" fn create_window(values: HashMap<String, Value>) -> Value {
 #[no_mangle]
 pub extern "Rust" fn value_map() -> HashMap<String, Value> {
     let mut map = HashMap::new();
+    
+    Value::lib_function("create_window", vec![],None).insert_to(&mut map);
 
-    Value::lib_function("create_window", vec![],  None).insert_to(&mut map);
-
-    Value::lib_function("buf_append", vec![], None).insert_to(&mut map);
-
-    Value::lib_function("set_color", vec!["color"],  None).insert_to(&mut map);
-
-    Value::lib_function("set_pixel", vec!["pixel_info"],  None).insert_to(&mut map);
-    Value::lib_function("draw_rect", vec!["pixel_coords"], None).insert_to(&mut map);
-    Value::lib_function("draw_line", vec!["pixel_coords"], None).insert_to(&mut map);
-    Value::lib_function("flush", vec![], None).insert_to(&mut map);
-    Value::lib_function("new_frame", vec![],  None).insert_to(&mut map);
-    Value::lib_function("get_delta_time", vec![], None).insert_to(&mut map);
-    Value::lib_function("sleep", vec!["sleep_duration"],  None).insert_to(&mut map);
-
-    Value::lib_function("get_screen_dimensions", vec![],  None).insert_to(&mut map);
 
     map
 }
