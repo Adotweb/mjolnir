@@ -488,11 +488,40 @@ pub extern "Rust" fn create_window(values: HashMap<String, Value>) -> Value {
 }
 
 #[no_mangle]
+pub extern "Rust" fn sin(values: HashMap<String, Value>) -> Value{
+
+    let num_input = values.get("number").unwrap().to_f64().unwrap();
+
+    return Value::number(num_input.sin())
+}
+
+#[no_mangle]
+pub extern "Rust" fn cos(values: HashMap<String, Value>) -> Value{
+
+    let num_input = values.get("number").unwrap().to_f64().unwrap();
+
+    return Value::number(num_input.cos())
+}
+
+
+#[no_mangle]
+pub extern "Rust" fn tan(values: HashMap<String, Value>) -> Value{
+
+    let num_input = values.get("number").unwrap().to_f64().unwrap();
+
+    return Value::number(num_input.tan())
+}
+
+#[no_mangle]
 pub extern "Rust" fn value_map() -> HashMap<String, Value> {
     let mut map = HashMap::new();
     
     Value::lib_function("create_window", vec![],None).insert_to(&mut map);
+    
 
+    Value::lib_function("sin", vec!["number"], None).insert_to(&mut map);
+    Value::lib_function("cos", vec!["number"], None).insert_to(&mut map);
+    Value::lib_function("tan", vec!["number"], None).insert_to(&mut map);
 
     map
 }
